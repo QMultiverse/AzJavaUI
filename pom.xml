@@ -185,6 +185,23 @@
             </properties>
         </profile>
         <profile>
+            <id>docker</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>3.1.2</version>
+                        <configuration>
+                            <systemPropertyVariables>
+                                <webdriver.driver>remote</webdriver.driver>
+                                <webdriver.remote.url>http://localhost:4444/wd/hub</webdriver.remote.url>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
             <id>failing</id>
             <build>
                 <plugins>
