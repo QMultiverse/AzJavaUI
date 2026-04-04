@@ -1,0 +1,120 @@
+trigger: none   # Pipeline runs on PR only, not on direct push
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    exclude:
+      - '**/*.md'    # Markdown changes don't trigger pipeline
+      - 'docs/**'
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: exp-config
+
+stages:
+
+  # ── Stage 1: Validate Gherkin and compile ────────────────────
+  - stage: Validate
+    displayName: 'Gherkin Validation + Compile'
+    jobs:
+      - job: ValidateAndCompile
+        displayName: 'Validate and compile'
+        steps:
+
+          - task: JavaToolInstaller@0
+            displayName: 'Install JDK 17'
+            inputs:
+              versionSpec: '17'
+              jdkArchitectureOption: x64
+              jdkSourceOption: PreInstalled
+
+          - task: Cache@2
+            displayName: 'Restore Maven dependency cache'
+            inputs:
+              key: 'maven | $(Agent.OS) | pom.xml'
+              path: $(HOME)/.m2/repository
+              restoreKeys: |
+                maven | $(Agent.OS)
+                maven
+
+          - script: mvn process-test-resources -q --no-transfer-progress
+            displayName: 'Validate Gherkin feature files'
+            # Runs serenity:check-gherkin — fails if any .feature file has syntax errors
+
+          - script: mvn compile test-compile -q --no-transfer-progress
+            displayName: 'Compile source and tests'
+            # Fails fast if any Java compilation error exists
+
+  # ── Stage 2: Smoke tests using inline Docker service containers ──
+  - stage: SmokeTest
+    displayName: 'Smoke Tests (Inline Selenium Grid)'
+    dependsOn: Validate
+    condition: succeeded()
+    jobs:
+      - job: SmokeChrome
+        displayName: 'Smoke Tests — Chrome'
+        services:
+          # These Docker containers start alongside the job
+          # No ACI needed — runs on the hosted agent itself
+          selenium-hub:
+            image: selenium/hub:4.20.0
+            ports:
+              - '4444:4444'
+              - '4442:4442'
+              - '4443:4443'
+          chrome:
+            image: selenium/node-chrome:4.20.0
+            env:
+              SE_EVENT_BUS_HOST: selenium-hub
+              SE_EVENT_BUS_PUBLISH_PORT: 4442
+              SE_EVENT_BUS_SUBSCRIBE_PORT: 4443
+              SE_NODE_MAX_SESSIONS: 2
+        steps:
+
+          - task: JavaToolInstaller@0
+            inputs: { versionSpec: '17', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled }
+
+          - task: Cache@2
+            inputs:
+              key: 'maven | $(Agent.OS) | pom.xml'
+              path: $(HOME)/.m2/repository
+
+          - script: |
+              echo "Running Vinayak.exe"
+              echo 'Waiting for Selenium Grid to become ready...'
+              until curl -sf http://localhost:4444/wd/hub/status | grep '"ready":true'; do
+                echo 'Not ready yet. Retrying in 3 seconds...'
+                sleep 3
+              done
+              echo 'Selenium Grid is ready'
+            displayName: 'Wait for Grid health check'
+
+          - script: |
+              mvn verify -Pcucumber --no-transfer-progress \
+                -Dwebdriver.remote.url=http://localhost:4444/wd/hub \
+                -Dcucumber.filter.tags='@smoke'
+            displayName: 'Run @smoke tagged scenarios'
+            env:
+              WEBDRIVER_BASE_URL: 'https://todomvc.com/examples/angular/dist/browser/#/'
+
+          - task: PublishTestResults@2
+            displayName: 'Publish results to Azure Test Plans'
+            condition: always()
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: '**/failsafe-reports/TEST-*.xml'
+              mergeTestResults: false
+              failTaskOnFailedTests: true
+              testRunTitle: 'Smoke | PR $(System.PullRequest.PullRequestNumber)'
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Archive Serenity smoke report'
+            condition: always()
+            inputs:
+              targetPath: target/site/serenity
+              artifact: 'serenity-smoke-pr-$(Build.BuildNumber)'
