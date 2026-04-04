@@ -24,10 +24,6 @@ az container create \
   --restart-policy Never --output none \
   --os-type Linux
 
-az container wait \
-  --resource-group "${RG}" --name "${HUB_NAME}" \
-  --created --timeout 120
-
 HUB_IP=$(az container show \
   --resource-group "${RG}" --name "${HUB_NAME}" \
   --query ipAddress.ip -o tsv)
