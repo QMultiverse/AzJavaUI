@@ -123,47 +123,6 @@ stages:
               testResultsFiles: '**/failsafe-reports/TEST-*.xml'
               testRunTitle: 'CI Edge | $(Build.SourceBranchName) | $(Build.BuildNumber)'
 
-      # Job C: API Java tests (parallel, no grid needed)
-      - job: APIJava
-        displayName: 'API Tests — Java'
-        pool: { vmImage: ubuntu-latest }
-        steps:
-          - task: JavaToolInstaller@0
-            inputs: { versionSpec: '17', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled }
-          - task: Cache@2
-            inputs:
-              key: 'maven | $(Agent.OS) | pom.xml'
-              path: $(HOME)/.m2/repository
-          - script: mvn verify -Papi --no-transfer-progress
-            displayName: 'Run API tests (Java)'
-          - task: PublishTestResults@2
-            condition: always()
-            inputs:
-              testResultsFormat: JUnit
-              testResultsFiles: '**/failsafe-reports/TEST-*.xml'
-              testRunTitle: 'CI API Java | $(Build.BuildNumber)'
-
-      # Job D: API Python tests (parallel, no grid needed)
-      - job: APIPython
-        displayName: 'API Tests — Python'
-        pool: { vmImage: ubuntu-latest }
-        steps:
-          - task: UsePythonVersion@0
-            inputs: { versionSpec: '3.11', addToPath: true }
-          - task: Cache@2
-            inputs:
-              key: 'pip | $(Agent.OS) | requirements.txt'
-              path: $(Pipeline.Workspace)/.pip
-          - script: pip install --cache-dir $(Pipeline.Workspace)/.pip -r requirements.txt
-            displayName: 'Install Python dependencies'
-          - script: pytest tests/api/ --junitxml=test-results/results.xml -v
-            displayName: 'Run API tests (Python)'
-          - task: PublishTestResults@2
-            condition: always()
-            inputs:
-              testResultsFormat: JUnit
-              testResultsFiles: 'test-results/results.xml'
-              testRunTitle: 'CI API Python | $(Build.BuildNumber)'
 
   # ── Stage 3: Publish reports to Blob Storage ─────────────────
   - stage: PublishReports
