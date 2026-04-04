@@ -21,7 +21,8 @@ az container create \
   --image selenium/hub:4.20.0 \
   --ports 4444 4442 4443 \
   --ip-address Public --cpu 1 --memory 2 \
-  --restart-policy Never --output none
+  --restart-policy Never --output none \
+  --osType Linux
 
 az container wait \
   --resource-group "${RG}" --name "${HUB_NAME}" \
@@ -43,6 +44,7 @@ for BROWSER in chrome edge; do
       SE_EVENT_BUS_PUBLISH_PORT=4442 \
       SE_EVENT_BUS_SUBSCRIBE_PORT=4443 \
       SE_NODE_MAX_SESSIONS=${SESSIONS} \
+    --osType Linux \
     --output none
 done
 
