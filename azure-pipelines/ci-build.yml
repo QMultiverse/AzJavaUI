@@ -1,0 +1,197 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    exclude:
+      - '**/*.md'
+
+variables:
+  - group: exp-config
+  - group: exp-secrets
+  - name: IMAGE_TAG
+    value: $(Build.SourceBranchName)-$(Build.BuildId)
+
+stages:
+
+  # ── Stage 1: Build and push Docker image ─────────────────────
+  - stage: BuildImage
+    displayName: 'Build and Push Docker Image'
+    jobs:
+      - job: Docker
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - task: Docker@2
+            displayName: 'Build and push serenity-runner image'
+            inputs:
+              command: buildAndPush
+              containerRegistry: acrserenitydev
+              repository: serenity-runner
+              dockerfile: Dockerfile
+              tags: |
+                $(IMAGE_TAG)
+                latest
+
+  # ── Stage 2: Parallel test execution ─────────────────────────
+  - stage: FullRegression
+    displayName: 'Full Regression (Parallel)'
+    dependsOn: BuildImage
+    condition: succeeded()
+    jobs:
+
+      # Job A: Selenium Chrome tests
+      - job: ChromeTests
+        displayName: 'Selenium — Chrome'
+        pool: { vmImage: ubuntu-latest }
+        timeoutInMinutes: 60
+        steps:
+          - task: JavaToolInstaller@0
+            inputs: { versionSpec: '17', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled }
+          - task: Cache@2
+            inputs:
+              key: 'maven | $(Agent.OS) | pom.xml'
+              path: $(HOME)/.m2/repository
+
+          - task: AzureCLI@2
+            displayName: 'Deploy ACI Selenium Grid'
+            inputs:
+              azureSubscription: azure-exp-connection
+              scriptType: bash
+              scriptPath: infra/grid/grid-deploy.sh
+            env:
+              BUILD_ID: $(Build.BuildId)
+              RESOURCE_GROUP: $(RESOURCE_GROUP)
+              CHROME_SESSIONS: $(CHROME_SESSIONS)
+
+          - task: AzureCLI@2
+            displayName: 'Run Cucumber tests — Chrome'
+            inputs:
+              azureSubscription: azure-exp-connection
+              scriptType: bash
+              scriptContent: |
+                GRID_IP=$(az container show \
+                  --resource-group $(RESOURCE_GROUP) \
+                  --name selenium-hub-$(Build.BuildId) \
+                  --query ipAddress.ip -o tsv)
+                echo "Grid IP: $GRID_IP"
+                mvn verify -Pazure-ci,cucumber --no-transfer-progress \
+                  -Dwebdriver.remote.url=http://$GRID_IP:4444/wd/hub \
+                  -DBROWSER=chrome
+            env:
+              WEBDRIVER_BASE_URL: 'https://todomvc.com/examples/angular/dist/browser/#/'
+
+          - task: AzureCLI@2
+            displayName: 'Teardown ACI Grid'
+            condition: always()   # CRITICAL: always tear down, even if tests fail
+            inputs:
+              azureSubscription: azure-exp-connection
+              scriptType: bash
+              scriptPath: infra/grid/grid-teardown.sh
+            env:
+              BUILD_ID: $(Build.BuildId)
+              RESOURCE_GROUP: $(RESOURCE_GROUP)
+
+          - task: PublishTestResults@2
+            condition: always()
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: '**/failsafe-reports/TEST-*.xml'
+              testRunTitle: 'CI Chrome | $(Build.SourceBranchName) | $(Build.BuildNumber)'
+
+      # Job B: Selenium Edge tests (parallel with Job A)
+      - job: EdgeTests
+        displayName: 'Selenium — Edge'
+        pool: { vmImage: windows-latest }  # Edge pre-installed on Windows agents
+        timeoutInMinutes: 60
+        steps:
+          - task: JavaToolInstaller@0
+            inputs: { versionSpec: '17', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled }
+
+          - script: |
+              mvn verify -Pazure-ci,cucumber --no-transfer-progress ^
+                -Dwebdriver.remote.url=$(selenium-grid-url) ^
+                -DserenityBrowser=edge
+            displayName: 'Run Cucumber tests — Edge'
+            env:
+              WEBDRIVER_BASE_URL: 'https://todomvc.com/examples/angular/dist/browser/#/'
+
+          - task: PublishTestResults@2
+            condition: always()
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: '**/failsafe-reports/TEST-*.xml'
+              testRunTitle: 'CI Edge | $(Build.SourceBranchName) | $(Build.BuildNumber)'
+
+      # Job C: API Java tests (parallel, no grid needed)
+      - job: APIJava
+        displayName: 'API Tests — Java'
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - task: JavaToolInstaller@0
+            inputs: { versionSpec: '17', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled }
+          - task: Cache@2
+            inputs:
+              key: 'maven | $(Agent.OS) | pom.xml'
+              path: $(HOME)/.m2/repository
+          - script: mvn verify -Papi --no-transfer-progress
+            displayName: 'Run API tests (Java)'
+          - task: PublishTestResults@2
+            condition: always()
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: '**/failsafe-reports/TEST-*.xml'
+              testRunTitle: 'CI API Java | $(Build.BuildNumber)'
+
+      # Job D: API Python tests (parallel, no grid needed)
+      - job: APIPython
+        displayName: 'API Tests — Python'
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - task: UsePythonVersion@0
+            inputs: { versionSpec: '3.11', addToPath: true }
+          - task: Cache@2
+            inputs:
+              key: 'pip | $(Agent.OS) | requirements.txt'
+              path: $(Pipeline.Workspace)/.pip
+          - script: pip install --cache-dir $(Pipeline.Workspace)/.pip -r requirements.txt
+            displayName: 'Install Python dependencies'
+          - script: pytest tests/api/ --junitxml=test-results/results.xml -v
+            displayName: 'Run API tests (Python)'
+          - task: PublishTestResults@2
+            condition: always()
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: 'test-results/results.xml'
+              testRunTitle: 'CI API Python | $(Build.BuildNumber)'
+
+  # ── Stage 3: Publish reports to Blob Storage ─────────────────
+  - stage: PublishReports
+    displayName: 'Publish Reports'
+    dependsOn: FullRegression
+    condition: always()   # Always publish, even if tests failed
+    jobs:
+      - job: Publish
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Upload Serenity report to Blob Storage'
+            inputs:
+              azureSubscription: azure-exp-connection
+              scriptType: bash
+              scriptContent: |
+                DEST="reports/$(Build.SourceBranchName)/build-$(Build.BuildId)"
+                az storage blob upload-batch \
+                  --account-name $(STORAGE_ACCOUNT) \
+                  --destination "\$web/${DEST}" \
+                  --source target/site/serenity \
+                  --overwrite true
+                LATEST="reports/$(Build.SourceBranchName)/latest"
+                az storage blob upload-batch \
+                  --account-name $(STORAGE_ACCOUNT) \
+                  --destination "\$web/${LATEST}" \
+                  --source target/site/serenity \
+                  --overwrite true
+                URL="https://$(STORAGE_ACCOUNT).z23.web.core.windows.net/${DEST}/index.html"
+                echo "##vso[task.logissue type=warning]Serenity Report: ${URL}"
+                echo "Report published at: ${URL}"
