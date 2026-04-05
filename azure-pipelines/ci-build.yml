@@ -51,6 +51,7 @@ stages:
             env:
               BUILD_ID: $(Build.BuildId)
               RESOURCE_GROUP: $(RESOURCE_GROUP)
+              LOCATION: $(LOCATION)
               CHROME_SESSIONS: $(CHROME_SESSIONS)
 
   # ── Stage 3: Parallel test execution ─────────────────────────
@@ -75,15 +76,13 @@ stages:
               azureSubscription: azure-exp-connection
               scriptType: bash
               scriptContent: |
-                GRID_IP=$(az container show \
-                  --resource-group $(RESOURCE_GROUP) \
-                  --name selenium-hub-$(Build.BuildId) \
-                  --query ipAddress.ip -o tsv)
-                echo "Grid IP: $GRID_IP"
+                HUB_FQDN="selenium-hub-${BUILD_ID}.${LOCATION}.azurecontainer.io"
                 mvn verify -Pazure-ci,cucumber --no-transfer-progress \
-                  -Dwebdriver.remote.url=http://$GRID_IP:4444/wd/hub \
+                  -Dwebdriver.remote.url=http://${HUB_FQDN}:4444/wd/hub \
                   -DBROWSER=chrome
             env:
+              BUILD_ID: $(Build.BuildId)
+              LOCATION: $(LOCATION)
               WEBDRIVER_BASE_URL: 'https://todomvc.com/examples/angular/dist/browser/#/'
 
           - task: PublishTestResults@2
@@ -108,15 +107,13 @@ stages:
               azureSubscription: azure-exp-connection
               scriptType: bash
               scriptContent: |
-                GRID_IP=$(az container show \
-                  --resource-group $(RESOURCE_GROUP) \
-                  --name selenium-hub-$(Build.BuildId) \
-                  --query ipAddress.ip -o tsv)
-                echo "Grid IP: $GRID_IP"
+                HUB_FQDN="selenium-hub-${BUILD_ID}.${LOCATION}.azurecontainer.io"
                 mvn verify -Pazure-ci,cucumber --no-transfer-progress \
-                  -Dwebdriver.remote.url=http://$GRID_IP:4444/wd/hub \
+                  -Dwebdriver.remote.url=http://${HUB_FQDN}:4444/wd/hub \
                   -DBROWSER=edge
             env:
+              BUILD_ID: $(Build.BuildId)
+              LOCATION: $(LOCATION)
               WEBDRIVER_BASE_URL: 'https://todomvc.com/examples/angular/dist/browser/#/'
 
           - task: PublishTestResults@2

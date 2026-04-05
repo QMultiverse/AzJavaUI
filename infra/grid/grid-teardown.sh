@@ -6,7 +6,6 @@
 set -euo pipefail
 
 RG="${RESOURCE_GROUP}"
-BUILD_ID="${BUILD_ID}"
 
 echo "[GRID] Tearing down | BUILD_ID=${BUILD_ID}"
 
