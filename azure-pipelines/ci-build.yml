@@ -215,7 +215,7 @@ stages:
                   --source "$(Pipeline.Workspace)/serenity-chrome" \
                   --overwrite true
                 
-                URL="https://$(STORAGE_ACCOUNT).z23.web.core.windows.net/${BASE}/chrome/index.html"
+                URL="https://$(STORAGE_ACCOUNT).z6.web.core.windows.net/${BASE}/chrome/index.html"
                 echo "##vso[task.logissue type=warning]Chrome Report: ${URL}"
                 echo "Chrome report published at: ${URL}"
 
@@ -242,6 +242,6 @@ stages:
                   --source "$(Pipeline.Workspace)/serenity-edge" \
                   --overwrite true
                 
-                URL="https://$(STORAGE_ACCOUNT).z23.web.core.windows.net/${BASE}/edge/index.html"
+                URL="https://$(STORAGE_ACCOUNT).z6.web.core.windows.net/${BASE}/edge/index.html"
                 echo "##vso[task.logissue type=warning]Edge Report: ${URL}"
                 echo "Edge report published at: ${URL}"
