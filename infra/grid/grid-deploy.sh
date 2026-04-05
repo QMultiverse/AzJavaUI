@@ -36,7 +36,7 @@ for BROWSER in chrome edge; do
     --image selenium/node-${BROWSER}:4.20.0 \
     --cpu 2 --memory 4 --restart-policy Never \
     --ip-address Public \
-    --ports 4444 4442 4443 5555 \
+    --ports 5555 \
     --environment-variables \
       SE_EVENT_BUS_HOST=${HUB_IP} \
       SE_EVENT_BUS_PUBLISH_PORT=4442 \
