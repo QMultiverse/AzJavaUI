@@ -39,7 +39,7 @@ stages:
     dependsOn: BuildImage
     condition: succeeded()
     jobs:
-      - job: Deploy Grid
+      - job: DeployGrid
         pool: { vmImage: ubuntu-latest }
         steps:
           - task: AzureCLI@2
@@ -132,7 +132,7 @@ stages:
     dependsOn: FullRegression
     condition: always()   # Always teardown grid, even if tests failed
     jobs:
-      - job: Teardown Grid
+      - job: TeardownGrid
         pool: { vmImage: ubuntu-latest }
         steps:
           - task: AzureCLI@2
