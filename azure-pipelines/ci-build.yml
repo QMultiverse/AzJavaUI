@@ -73,7 +73,7 @@ stages:
           - task: Bash@3
             displayName: 'Run Cucumber tests — Chrome'
             inputs:
-              targetType: 'inline'
+              targetType: inline
               script: |
                 HUB_FQDN="selenium-hub-${BUILD_ID}.${LOCATION}.azurecontainer.io"
                 mvn verify -Pazure-ci,cucumber --no-transfer-progress \
@@ -91,6 +91,15 @@ stages:
               testResultsFiles: '**/failsafe-reports/TEST-*.xml'
               testRunTitle: 'CI Chrome | $(Build.SourceBranchName) | $(Build.BuildNumber)'
 
+          # ── Publish Serenity report as pipeline artifact ──────────
+          - task: PublishPipelineArtifact@1
+            condition: always()                        # upload even if tests failed
+            displayName: 'Upload Serenity report artifact — Chrome'
+            inputs:
+              targetPath: target/site/serenity         # where Maven wrote it
+              artifact: serenity-report-chrome         # unique name per job
+              publishLocation: pipeline
+
       # Job B: Selenium Edge tests (parallel with Job A)
       - job: EdgeTests
         displayName: 'Selenium — Edge'
@@ -103,7 +112,7 @@ stages:
           - task: Bash@3
             displayName: 'Run Cucumber tests — Edge'
             inputs:
-              targetType: 'inline'
+              targetType: inline
               script: |
                 HUB_FQDN="selenium-hub-${BUILD_ID}.${LOCATION}.azurecontainer.io"
                 mvn verify -Pazure-ci,cucumber --no-transfer-progress \
@@ -120,6 +129,15 @@ stages:
               testResultsFormat: JUnit
               testResultsFiles: '**/failsafe-reports/TEST-*.xml'
               testRunTitle: 'CI Edge | $(Build.SourceBranchName) | $(Build.BuildNumber)'
+
+          # ── Publish Serenity report as pipeline artifact ──────────
+          - task: PublishPipelineArtifact@1
+            condition: always()
+            displayName: 'Upload Serenity report artifact — Edge'
+            inputs:
+              targetPath: target/site/serenity
+              artifact: serenity-report-edge          # different name from Chrome
+              publishLocation: pipeline
 
   # ── Stage 4: Teardown Selenium Grid ─────────────────────
   - stage: TeardownGrid
@@ -154,7 +172,7 @@ stages:
             inputs:
               azureSubscription: azure-exp-connection
               scriptType: bash
-              scriptLocation: 'inlineScript'
+              scriptLocation: inlineScript
               inlineScript: |
                 DEST="reports/$(Build.SourceBranchName)/build-$(Build.BuildId)"
                 az storage blob upload-batch \
@@ -171,3 +189,91 @@ stages:
                 URL="https://$(STORAGE_ACCOUNT).z23.web.core.windows.net/${DEST}/index.html"
                 echo "##vso[task.logissue type=warning]Serenity Report: ${URL}"
                 echo "Report published at: ${URL}"
+
+  # ── Stage 5: Publish reports to Blob Storage ─────────────────
+  - stage: PublishReports
+    displayName: 'Publish Reports'
+    dependsOn: TeardownGrid
+    condition: always()
+    jobs:
+      - job: Publish
+        pool: { vmImage: ubuntu-latest }
+        steps:
+
+          # ── Download both artifacts ───────────────────────────
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Chrome Serenity report'
+            inputs:
+              artifact: serenity-report-chrome
+              path: $(Pipeline.Workspace)/serenity-chrome
+
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Edge Serenity report'
+            inputs:
+              artifact: serenity-report-edge
+              path: $(Pipeline.Workspace)/serenity-edge
+
+          # ── Verify the directories exist before upload ────────
+          - task: Bash@3
+            displayName: 'Verify report directories'
+            inputs:
+              targetType: inline
+              script: |
+                echo "=== Chrome report ==="
+                ls $(Pipeline.Workspace)/serenity-chrome || echo "Chrome report missing"
+                echo "=== Edge report ==="
+                ls $(Pipeline.Workspace)/serenity-edge   || echo "Edge report missing"
+
+          # ── Upload Chrome report ──────────────────────────────
+          - task: AzureCLI@2
+            displayName: 'Upload Chrome Serenity report to Blob Storage'
+            inputs:
+              azureSubscription: azure-exp-connection
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                BASE="reports/$(Build.SourceBranchName)/build-$(Build.BuildId)"
+                
+                az storage blob upload-batch \
+                  --account-name $(STORAGE_ACCOUNT) \
+                  --destination "\$web/${BASE}/chrome" \
+                  --source "$(Pipeline.Workspace)/serenity-chrome" \
+                  --overwrite true
+                
+                az storage blob upload-batch \
+                  --account-name $(STORAGE_ACCOUNT) \
+                  --destination "\$web/reports/$(Build.SourceBranchName)/latest/chrome" \
+                  --source "$(Pipeline.Workspace)/serenity-chrome" \
+                  --overwrite true
+                
+                URL="https://$(STORAGE_ACCOUNT).z23.web.core.windows.net/${BASE}/chrome/index.html"
+                echo "##vso[task.logissue type=warning]Chrome Report: ${URL}"
+                echo "Chrome report published at: ${URL}"
+
+          # ── Upload Edge report ────────────────────────────────
+          - task: AzureCLI@2
+            displayName: 'Upload Edge Serenity report to Blob Storage'
+            inputs:
+              azureSubscription: azure-exp-connection
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                BASE="reports/$(Build.SourceBranchName)/build-$(Build.BuildId)"
+                
+                az storage blob upload-batch \
+                  --account-name $(STORAGE_ACCOUNT) \
+                  --destination "\$web/${BASE}/edge" \
+                  --source "$(Pipeline.Workspace)/serenity-edge" \
+                  --overwrite true
+                
+                az storage blob upload-batch \
+                  --account-name $(STORAGE_ACCOUNT) \
+                  --destination "\$web/reports/$(Build.SourceBranchName)/latest/edge" \
+                  --source "$(Pipeline.Workspace)/serenity-edge" \
+                  --overwrite true
+                
+                URL="https://$(STORAGE_ACCOUNT).z23.web.core.windows.net/${BASE}/edge/index.html"
+                echo "##vso[task.logissue type=warning]Edge Report: ${URL}"
+                echo "Edge report published at: ${URL}"
