@@ -70,12 +70,11 @@ stages:
           - task: JavaToolInstaller@0
             inputs: { versionSpec: '17', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled }
 
-          - task: AzureCLI@2
+          - task: Bash@3
             displayName: 'Run Cucumber tests — Chrome'
             inputs:
-              azureSubscription: azure-exp-connection
-              scriptType: bash
-              scriptContent: |
+              targetType: 'inline'
+              script: |
                 HUB_FQDN="selenium-hub-${BUILD_ID}.${LOCATION}.azurecontainer.io"
                 mvn verify -Pazure-ci,cucumber --no-transfer-progress \
                   -Dwebdriver.remote.url=http://${HUB_FQDN}:4444/wd/hub \
@@ -101,12 +100,11 @@ stages:
           - task: JavaToolInstaller@0
             inputs: { versionSpec: '17', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled }
 
-          - task: AzureCLI@2
+          - task: Bash@3
             displayName: 'Run Cucumber tests — Edge'
             inputs:
-              azureSubscription: azure-exp-connection
-              scriptType: bash
-              scriptContent: |
+              targetType: 'inline'
+              script: |
                 HUB_FQDN="selenium-hub-${BUILD_ID}.${LOCATION}.azurecontainer.io"
                 mvn verify -Pazure-ci,cucumber --no-transfer-progress \
                   -Dwebdriver.remote.url=http://${HUB_FQDN}:4444/wd/hub \
