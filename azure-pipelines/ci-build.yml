@@ -162,38 +162,6 @@ stages:
   - stage: PublishReports
     displayName: 'Publish Reports'
     dependsOn: TeardownGrid
-    condition: always()   # Always publish, even if tests failed
-    jobs:
-      - job: Publish
-        pool: { vmImage: ubuntu-latest }
-        steps:
-          - task: AzureCLI@2
-            displayName: 'Upload Serenity report to Blob Storage'
-            inputs:
-              azureSubscription: azure-exp-connection
-              scriptType: bash
-              scriptLocation: inlineScript
-              inlineScript: |
-                DEST="reports/$(Build.SourceBranchName)/build-$(Build.BuildId)"
-                az storage blob upload-batch \
-                  --account-name $(STORAGE_ACCOUNT) \
-                  --destination "\$web/${DEST}" \
-                  --source target/site/serenity \
-                  --overwrite true
-                LATEST="reports/$(Build.SourceBranchName)/latest"
-                az storage blob upload-batch \
-                  --account-name $(STORAGE_ACCOUNT) \
-                  --destination "\$web/${LATEST}" \
-                  --source target/site/serenity \
-                  --overwrite true
-                URL="https://$(STORAGE_ACCOUNT).z23.web.core.windows.net/${DEST}/index.html"
-                echo "##vso[task.logissue type=warning]Serenity Report: ${URL}"
-                echo "Report published at: ${URL}"
-
-  # ── Stage 5: Publish reports to Blob Storage ─────────────────
-  - stage: PublishReports
-    displayName: 'Publish Reports'
-    dependsOn: TeardownGrid
     condition: always()
     jobs:
       - job: Publish
