@@ -33,10 +33,30 @@ stages:
                 $(IMAGE_TAG)
                 latest
 
-  # ── Stage 2: Parallel test execution ─────────────────────────
+  # ── Stage 2: Setup Selenium Grid ─────────────────────
+  - stage: SetupGrid
+    displayName: 'Setup Selenium Grid'
+    dependsOn: BuildImage
+    condition: succeeded()
+    jobs:
+      - job: Deploy Grid
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Deploy ACI Selenium Grid'
+            inputs:
+              azureSubscription: azure-exp-connection
+              scriptType: bash
+              scriptPath: infra/grid/grid-deploy.sh
+            env:
+              BUILD_ID: $(Build.BuildId)
+              RESOURCE_GROUP: $(RESOURCE_GROUP)
+              CHROME_SESSIONS: $(CHROME_SESSIONS)
+
+  # ── Stage 3: Parallel test execution ─────────────────────────
   - stage: FullRegression
     displayName: 'Full Regression (Parallel)'
-    dependsOn: BuildImage
+    dependsOn: SetupGrid
     condition: succeeded()
     jobs:
 
@@ -48,21 +68,6 @@ stages:
         steps:
           - task: JavaToolInstaller@0
             inputs: { versionSpec: '17', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled }
-          - task: Cache@2
-            inputs:
-              key: 'maven | $(Agent.OS) | pom.xml'
-              path: $(HOME)/.m2/repository
-
-          - task: AzureCLI@2
-            displayName: 'Deploy ACI Selenium Grid'
-            inputs:
-              azureSubscription: azure-exp-connection
-              scriptType: bash
-              scriptPath: infra/grid/grid-deploy.sh
-            env:
-              BUILD_ID: $(Build.BuildId)
-              RESOURCE_GROUP: $(RESOURCE_GROUP)
-              CHROME_SESSIONS: $(CHROME_SESSIONS)
 
           - task: AzureCLI@2
             displayName: 'Run Cucumber tests — Chrome'
@@ -81,17 +86,6 @@ stages:
             env:
               WEBDRIVER_BASE_URL: 'https://todomvc.com/examples/angular/dist/browser/#/'
 
-          - task: AzureCLI@2
-            displayName: 'Teardown ACI Grid'
-            condition: always()   # CRITICAL: always tear down, even if tests fail
-            inputs:
-              azureSubscription: azure-exp-connection
-              scriptType: bash
-              scriptPath: infra/grid/grid-teardown.sh
-            env:
-              BUILD_ID: $(Build.BuildId)
-              RESOURCE_GROUP: $(RESOURCE_GROUP)
-
           - task: PublishTestResults@2
             condition: always()
             inputs:
@@ -102,17 +96,26 @@ stages:
       # Job B: Selenium Edge tests (parallel with Job A)
       - job: EdgeTests
         displayName: 'Selenium — Edge'
-        pool: { vmImage: windows-latest }  # Edge pre-installed on Windows agents
+        pool: { vmImage: ubuntu-latest }
         timeoutInMinutes: 60
         steps:
           - task: JavaToolInstaller@0
             inputs: { versionSpec: '17', jdkArchitectureOption: x64, jdkSourceOption: PreInstalled }
 
-          - script: |
-              mvn verify -Pazure-ci,cucumber --no-transfer-progress ^
-                -Dwebdriver.remote.url=$(selenium-grid-url) ^
-                -DserenityBrowser=edge
+          - task: AzureCLI@2
             displayName: 'Run Cucumber tests — Edge'
+            inputs:
+              azureSubscription: azure-exp-connection
+              scriptType: bash
+              scriptContent: |
+                GRID_IP=$(az container show \
+                  --resource-group $(RESOURCE_GROUP) \
+                  --name selenium-hub-$(Build.BuildId) \
+                  --query ipAddress.ip -o tsv)
+                echo "Grid IP: $GRID_IP"
+                mvn verify -Pazure-ci,cucumber --no-transfer-progress \
+                  -Dwebdriver.remote.url=http://$GRID_IP:4444/wd/hub \
+                  -DBROWSER=edge
             env:
               WEBDRIVER_BASE_URL: 'https://todomvc.com/examples/angular/dist/browser/#/'
 
@@ -123,11 +126,29 @@ stages:
               testResultsFiles: '**/failsafe-reports/TEST-*.xml'
               testRunTitle: 'CI Edge | $(Build.SourceBranchName) | $(Build.BuildNumber)'
 
+  # ── Stage 4: Teardown Selenium Grid ─────────────────────
+  - stage: TeardownGrid
+    displayName: 'Teardown Selenium Grid'
+    dependsOn: FullRegression
+    condition: always()   # Always teardown grid, even if tests failed
+    jobs:
+      - job: Teardown Grid
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Teardown ACI Grid'
+            inputs:
+              azureSubscription: azure-exp-connection
+              scriptType: bash
+              scriptPath: infra/grid/grid-teardown.sh
+            env:
+              BUILD_ID: $(Build.BuildId)
+              RESOURCE_GROUP: $(RESOURCE_GROUP)
 
   # ── Stage 3: Publish reports to Blob Storage ─────────────────
   - stage: PublishReports
     displayName: 'Publish Reports'
-    dependsOn: FullRegression
+    dependsOn: TeardownGrid
     condition: always()   # Always publish, even if tests failed
     jobs:
       - job: Publish
