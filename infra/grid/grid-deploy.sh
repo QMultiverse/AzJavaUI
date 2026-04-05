@@ -19,7 +19,7 @@ echo "[GRID] Deploying | BUILD_ID=${BUILD_ID}"
 az container create \
   --resource-group "${RG}" --name "${HUB_NAME}" \
   --image selenium/hub:4.20.0 \
-  --ports 4444 4442 4443 \
+  --ports 4444 4442 4443 5555 \
   --ip-address Public --cpu 1 --memory 2 \
   --restart-policy Never --output none \
   --os-type Linux
@@ -36,11 +36,13 @@ for BROWSER in chrome edge; do
     --image selenium/node-${BROWSER}:4.20.0 \
     --cpu 2 --memory 4 --restart-policy Never \
     --ip-address Public \
+    --dns-name-label "selenium-${BROWSER}-${BUILD_ID}" \
     --ports 5555 \
     --environment-variables \
       SE_EVENT_BUS_HOST=${HUB_IP} \
       SE_EVENT_BUS_PUBLISH_PORT=4442 \
       SE_EVENT_BUS_SUBSCRIBE_PORT=4443 \
+      SE_NODE_HOST="selenium-${BROWSER}-${BUILD_ID}" \
       SE_NODE_MAX_SESSIONS=${SESSIONS} \
     --os-type Linux \
     --output none
