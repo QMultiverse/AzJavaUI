@@ -31,18 +31,21 @@ HUB_IP=$(az container show \
 # Deploy Chrome and Edge nodes
 for BROWSER in chrome edge; do
   SESSIONS=$([[ "$BROWSER" == 'chrome' ]] && echo ${CHROME_SESSIONS} || echo 2)
+  NAME="selenium-${BROWSER}-${BUILD_ID}"
+  # FQDN is always: <dnsNameLabel>.<location>.azurecontainer.io
+  FQDN="${NAME}.westeurope.azurecontainer.io"
   az container create \
-    --resource-group "${RG}" --name "selenium-${BROWSER}-${BUILD_ID}" \
+    --resource-group "${RG}" --name "${NAME}" \
     --image selenium/node-${BROWSER}:4.20.0 \
     --cpu 2 --memory 4 --restart-policy Never \
     --ip-address Public \
-    --dns-name-label "selenium-${BROWSER}-${BUILD_ID}" \
+    --dns-name-label "${NAME}" \
     --ports 5555 \
     --environment-variables \
       SE_EVENT_BUS_HOST=${HUB_IP} \
       SE_EVENT_BUS_PUBLISH_PORT=4442 \
       SE_EVENT_BUS_SUBSCRIBE_PORT=4443 \
-      SE_NODE_HOST="selenium-${BROWSER}-${BUILD_ID}" \
+      SE_NODE_HOST="${FQDN}" \
       SE_NODE_MAX_SESSIONS=${SESSIONS} \
     --os-type Linux \
     --output none
