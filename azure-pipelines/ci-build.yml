@@ -140,7 +140,7 @@ stages:
               BUILD_ID: $(Build.BuildId)
               RESOURCE_GROUP: $(RESOURCE_GROUP)
 
-  # ── Stage 3: Publish reports to Blob Storage ─────────────────
+  # ── Stage 5: Publish reports to Blob Storage ─────────────────
   - stage: PublishReports
     displayName: 'Publish Reports'
     dependsOn: TeardownGrid
@@ -154,7 +154,8 @@ stages:
             inputs:
               azureSubscription: azure-exp-connection
               scriptType: bash
-              scriptContent: |
+              scriptLocation: 'inlineScript'
+              inlineScript: |
                 DEST="reports/$(Build.SourceBranchName)/build-$(Build.BuildId)"
                 az storage blob upload-batch \
                   --account-name $(STORAGE_ACCOUNT) \
